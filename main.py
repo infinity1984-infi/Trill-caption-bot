@@ -1,5 +1,5 @@
 import os
-from dotenv import load_dotenv
+import logging
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -9,16 +9,21 @@ from telegram.ext import (
     MessageHandler,
     filters
 )
+import config
 
-# Load environment variables
-load_dotenv()
+# Set up logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Conversation states
 IMAGE_WAIT, IMG_DETAILS = 1, 2
 
-# Configuration
-ADMIN_IDS = [int(id) for id in os.getenv('ADMIN_IDS').split(',')]
-DEFAULT_QUALITIES = os.getenv('DEFAULT_QUALITIES').split(',')
+# Configuration from config.py
+ADMIN_IDS = config.ADMIN_IDS
+DEFAULT_QUALITIES = config.DEFAULT_QUALITIES
 
 # Command handlers
 async def set_quality(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -95,6 +100,7 @@ async def process_img_details(update: Update, context: ContextTypes.DEFAULT_TYPE
         season=details[2].strip(),
         episodes=details[3].strip(),
         qualities=", ".join(qualities)
+    )
     await update.message.reply_photo(
         photo=context.chat_data["img_file_id"],
         caption=caption,
@@ -109,9 +115,16 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Operation cancelled.")
     return ConversationHandler.END
 
+# Global error handler
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    # Optionally, you can notify the user if appropriate:
+    # if update and hasattr(update, "message") and update.message:
+    #     await update.message.reply_text("An error occurred. Please try again later.")
+
 def main():
-    app = Application.builder().token(os.getenv('BOT_TOKEN')).build()
-    
+    app = Application.builder().token(config.BOT_TOKEN).build()
+
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('imgcap', imgcap_start)],
         states={
@@ -126,13 +139,16 @@ def main():
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-    
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setquality", set_quality))
     app.add_handler(CommandHandler("setcaption", set_caption))
     app.add_handler(CommandHandler("ban", ban_user))
     app.add_handler(CommandHandler("setbatch", set_batch))
     app.add_handler(conv_handler)
+    
+    # Register global error handler
+    app.add_error_handler(error_handler)
     
     app.run_polling()
 
